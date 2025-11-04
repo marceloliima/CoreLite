@@ -193,8 +193,6 @@ Você pode usá-lo livremente para fins acadêmicos e comerciais.
 ---
 
 ## 💬 Contato
-
-📧 **marceloliima.dev@gmail.com**  
 🔗 GitHub: [@marceloliima](https://github.com/marceloliima)
 
 ---
