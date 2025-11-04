@@ -71,7 +71,7 @@ Um mini-framework PHP **moderno e seguro**, desenvolvido do zero em arquitetura 
 
 ```bash
 git clone https://github.com/marceloliima/CoreLite.git
-cd nome-do-projeto
+cd CoreLite
 ```
 
 ### 2️⃣ Configurar o arquivo `.env`
