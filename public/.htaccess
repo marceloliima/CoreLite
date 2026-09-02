@@ -1,87 +1,13 @@
-# ==========================================================
-# 🔹 Habilita o módulo de reescrita do Apache
-# ==========================================================
-RewriteEngine On
-
-# ==========================================================
-# 🔹 Define o diretório base
-# Como o DocumentRoot já aponta para "Public", deixamos como "/"
-# ==========================================================
-RewriteBase /
-
-# ==========================================================
-# 🔹 Ignora arquivos e diretórios físicos existentes
-# Se o arquivo ou pasta existir, Apache serve direto
-# ==========================================================
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-
-# ==========================================================
-# 🔹 Roteamento amigável
-# Todas as requisições passam pelo index.php
-# A URL é enviada via parâmetro 'url' para o Router
-# Exemplo: /hello/Marcelo → index.php?url=hello/Marcelo
-# ==========================================================
-RewriteRule ^(.*)$ index.php?url=$1 [QSA,L]
-
-# ==========================================================
-# 🔹 Segurança: bloqueia acesso a arquivos sensíveis
-# Protege arquivos de configuração, logs, scripts e dados sensíveis
-# ==========================================================
-<FilesMatch "\.(env|json|md|lock|git|sql|sh|ini|log|yml|yaml)$">
-  Require all denied
-</FilesMatch>
-
-# ==========================================================
-# 🔹 Bloqueia listagem de diretórios
-# Se não houver index.php, impede que arquivos apareçam
-# ==========================================================
 Options -Indexes
+DirectoryIndex index.php
 
-# ==========================================================
-# 🔹 Força UTF-8 para todos os arquivos de texto
-# Evita problemas de encoding em HTML e PHP
-# ==========================================================
-AddDefaultCharset UTF-8
-
-# ==========================================================
-# 🔹 Cabeçalhos de segurança adicionais
-# ==========================================================
-<IfModule mod_headers.c>
-  # Impede iframes de outros domínios (clickjacking)
-  Header always set X-Frame-Options "SAMEORIGIN"
-
-  # Impede que navegadores interpretem arquivos de forma errada
-  Header always set X-Content-Type-Options "nosniff"
-
-  # Proteção XSS (para navegadores antigos)
-  Header always set X-XSS-Protection "1; mode=block"
-
-  # Política de referrer (envio de header referer)
-  Header always set Referrer-Policy "no-referrer-when-downgrade"
-
-  # Política de segurança de conteúdo (CSP)
-  # Permite apenas scripts e estilos da própria origem
-  Header always set Content-Security-Policy "default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'"
-
-  # Controle de cache para arquivos PHP/HTML dinâmicos
-  <FilesMatch "\.(php|html)$">
-    Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
-    Header set Pragma "no-cache"
-    Header set Expires 0
-  </FilesMatch>
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [QSA,L]
 </IfModule>
 
-# ==========================================================
-# 🔹 Boas práticas adicionais
-# ==========================================================
-# 1. Certifique-se que o módulo mod_rewrite está ativo no Apache.
-#    No XAMPP, abra httpd.conf e verifique:
-#       LoadModule rewrite_module modules/mod_rewrite.so
-#
-# 2. Com DocumentRoot apontando para Public, URLs ficam limpas:
-#       http://localhost/hello/Marcelo
-#    e o Router receberá 'hello/Marcelo' em $_GET['url']
-#
-# 3. Reinicie o Apache após alterações no .htaccess
-# ==========================================================
+<IfModule mod_headers.c>
+    Header always unset X-Powered-By
+</IfModule>

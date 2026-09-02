@@ -1,64 +1,92 @@
 <?php
+
 declare(strict_types=1);
 
 use App\Core\Env;
+use App\Core\Session;
 
-/**
- * ===============================================================
- * 🔹 AUTOLOAD PSR-4 SIMPLIFICADO (estilo Laravel)
- * ===============================================================
- */
-spl_autoload_register(function (string $class): void {
+spl_autoload_register(static function (string $class): void {
     $prefix = 'App\\';
-    $baseDir = __DIR__ . '/../App/';
+    if (!str_starts_with($class, $prefix)) {
+        return;
+    }
 
-    if (str_starts_with($class, $prefix)) {
-        $relativeClass = substr($class, strlen($prefix));
-        $file = $baseDir . str_replace('\\', '/', $relativeClass) . '.php';
-
-        if (file_exists($file)) {
-            require_once $file;
-            return;
-        }
-
-        if (ini_get('display_errors')) {
-            throw new \RuntimeException("Autoload falhou: classe {$class} não encontrada em {$file}");
-        } else {
-            error_log("Autoload: classe {$class} não encontrada em {$file}");
-        }
+    $relative = substr($class, strlen($prefix));
+    $path = __DIR__ . '/' . str_replace('\\', '/', $relative) . '.php';
+    if (is_file($path)) {
+        require $path;
     }
 });
 
-/**
- * ===============================================================
- * 🔹 CARREGAMENTO DE VARIÁVEIS DE AMBIENTE (.env)
- * ===============================================================
- */
-Env::load(__DIR__ . '/../.env');
+Env::load(dirname(__DIR__) . '/.env');
 
-/**
- * ===============================================================
- * 🔹 FUNÇÃO AUXILIAR env() (como Laravel)
- * ===============================================================
- *
- * @param string $key
- * @param mixed $default
- * @return mixed
- */
 function env(string $key, mixed $default = null): mixed
 {
-    $value = getenv($key) ?: $_ENV[$key] ?? $_SERVER[$key] ?? null;
-
-    if ($value === null) {
+    $value = getenv($key);
+    if ($value === false) {
         return $default;
     }
 
-    // Converte strings booleanas e numéricas
-    $lower = strtolower($value);
-    return match ($lower) {
+    return match (strtolower($value)) {
         'true', '(true)' => true,
         'false', '(false)' => false,
         'null', '(null)' => null,
-        default => is_numeric($value) ? (strpos($value, '.') !== false ? (float)$value : (int)$value) : $value
+        default => $value,
     };
 }
+
+$GLOBALS['config'] = [
+    'app' => require dirname(__DIR__) . '/config/app.php',
+    'database' => require dirname(__DIR__) . '/config/database.php',
+];
+
+function config(string $key, mixed $default = null): mixed
+{
+    $segments = explode('.', $key);
+    $value = $GLOBALS['config'] ?? [];
+    foreach ($segments as $segment) {
+        if (!is_array($value) || !array_key_exists($segment, $value)) {
+            return $default;
+        }
+        $value = $value[$segment];
+    }
+    return $value;
+}
+
+function e(mixed $value): string
+{
+    return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+function url(string $path = ''): string
+{
+    $base = rtrim((string) config('app.url', ''), '/');
+    return $base . '/' . ltrim($path, '/');
+}
+
+function redirect(string $path): never
+{
+    header('Location: ' . url($path), true, 302);
+    exit;
+}
+
+function old(string $key, string $default = ''): string
+{
+    return (string) ($_SESSION['_old'][$key] ?? $default);
+}
+
+function selected(string $value, string $expected): string
+{
+    return $value === $expected ? 'selected' : '';
+}
+
+function checked(bool $condition): string
+{
+    return $condition ? 'checked' : '';
+}
+
+date_default_timezone_set((string) config('app.timezone', 'UTC'));
+error_reporting(E_ALL);
+ini_set('display_errors', config('app.debug', false) ? '1' : '0');
+
+Session::start();

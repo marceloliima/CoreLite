@@ -1,0 +1,3 @@
+<?php $pageTitle = 'Editar usuário'; ?>
+<section class="page-head"><div><p class="eyebrow">Administração</p><h1>Editar usuário</h1><p class="muted">Atualize dados e permissões da conta.</p></div><a class="btn btn-quiet" href="<?= e(url('/users/' . $user['id'])) ?>">Voltar</a></section>
+<section class="panel form-panel"><form method="post" action="<?= e(url('/users/' . $user['id'] . '/update')) ?>"><input type="hidden" name="id" value="<?= e($user['id']) ?>"><input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>"><?php require __DIR__ . '/form.php'; ?><div class="form-actions"><button class="btn btn-primary" type="submit">Salvar alterações</button><a class="btn btn-quiet" href="<?= e(url('/users/' . $user['id'])) ?>">Cancelar</a></div></form></section>

@@ -1,200 +1,158 @@
-# 🧩 MVC Framework PHP — Sistema de Usuários
+# SecurePanel PHP 8.2
 
-Um mini-framework PHP **moderno e seguro**, desenvolvido do zero em arquitetura **MVC**, inspirado no **Laravel**, com foco em aprendizado de **Análise e Desenvolvimento de Sistemas** e boas práticas de **Clean Code**, **Segurança** e **Organização de Projeto**.
+Sistema completo de autenticação e gerenciamento de usuários em **PHP 8.2 puro**, sem frameworks, sem Composer, sem Bootstrap, sem CDN, sem fontes externas e sem bibliotecas de terceiros.
 
----
+## Recursos
 
-## 👨‍💻 Autor
+- MVC próprio.
+- Router próprio.
+- PDO com prepared statements reais.
+- Primeiro acesso web em `/setup`.
+- Criação do primeiro administrador sem senha padrão.
+- Bloqueio do instalador após a primeira configuração.
+- `INSTALL_KEY` opcional para proteger o primeiro acesso.
+- Cadastro público em `/register`.
+- Cadastro público sempre cria `role=user` e `status=active` no backend.
+- Cadastro público pode ser desligado no `.env`.
+- Login/logout.
+- Dashboard.
+- CRUD completo de usuários.
+- Perfis `admin`, `manager` e `user`.
+- Busca, filtros e paginação.
+- Ativar/desativar usuário.
+- Soft delete.
+- Proteção do último administrador ativo.
+- Perfil do próprio usuário.
+- Alteração de senha exigindo a senha atual.
+- Auditoria administrativa.
+- Rate limit de login e de cadastro.
+- CSRF contextual e de uso único.
+- `password_hash`, `password_verify` e rehash automático.
+- Sessões endurecidas e regeneração de ID.
+- Timeouts de sessão.
+- CSP e cabeçalhos HTTP de segurança.
+- CSS e JavaScript locais.
 
-**Marcelo Lima**  
-📍 Estudante de Análise e Desenvolvimento de Sistemas  
-🌐 [github.com/marceloliima](https://github.com/marceloliima)
+## Instalação no XAMPP
 
----
+1. Extraia para `C:\xampp\htdocs\securepanel`.
+2. Importe `database.sql` no phpMyAdmin.
+3. Copie `.env.example` para `.env`.
+4. Ajuste o banco no `.env`.
+5. Configure o Apache para apontar o DocumentRoot para `C:/xampp/htdocs/securepanel/public`.
 
-## 🚀 Tecnologias Utilizadas
+Exemplo de VirtualHost:
 
-- **PHP 8.2+** (tipagem estrita, PSR-4)
-- **PDO (MySQL)** — conexão segura e orientada a objetos
-- **HTML5 / CSS3 / JS (Vanilla)**
-- **Arquitetura MVC pura**
-- **.env** para variáveis de ambiente
-- **Sessões seguras e CSRF Token**
-- **Sistema de Rotas fluente (Router customizado)**
-- **Modelo ORM simplificado (estilo Eloquent)**
+```apache
+<VirtualHost *:80>
+    ServerName securepanel.local
+    DocumentRoot "C:/xampp/htdocs/securepanel/public"
 
----
-
-## 🏗️ Estrutura do Projeto
-
-```
-📦 Projeto/
-│
-├── 📂 App/
-│   ├── 📂 Controllers/
-│   │   ├── AuthController.php
-│   │   └── UsuarioController.php
-│   │
-│   ├── 📂 Core/
-│   │   ├── Controller.php
-│   │   ├── Model.php
-│   │   ├── Router.php
-│   │   ├── Csrf.php
-│   │   ├── Database.php
-│   │   └── Env.php
-│   │
-│   ├── 📂 Models/
-│   │   └── UsuarioModel.php
-│   │
-│   ├── 📂 Views/
-│   │   ├── login.php
-│   │   ├── usuarios/
-│   │   │   ├── index.php
-│   │   │   ├── create.php
-│   │   │   ├── edit.php
-│   │   │   └── show.php
-│   │
-│   └── bootstrap.php
-│
-├── 📂 public/
-│   └── index.php   # ponto de entrada da aplicação
-│
-├── 📄 .env.example
-└── 📄 README.md
+    <Directory "C:/xampp/htdocs/securepanel/public">
+        Options FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+</VirtualHost>
 ```
 
----
+No arquivo `C:\Windows\System32\drivers\etc\hosts`:
 
-## ⚙️ Configuração do Ambiente
-
-### 1️⃣ Clonar o repositório
-
-```bash
-git clone https://github.com/marceloliima/CoreLite.git
-cd CoreLite
+```text
+127.0.0.1 securepanel.local
 ```
 
-### 2️⃣ Configurar o arquivo `.env`
+No `.env`:
 
-Copie o exemplo:
-
-```bash
-cp .env.example .env
+```env
+APP_URL="http://securepanel.local"
 ```
 
-Edite as variáveis conforme seu ambiente:
+## Primeiro acesso
 
-```ini
-DB_HOST=localhost
-DB_NAME=meu_banco
-DB_USER=root
-DB_PASS=
-APP_ENV=local
-APP_DEBUG=true
+Ao acessar pela primeira vez, `/login` redireciona para `/setup`.
+
+Nessa tela você cria o primeiro administrador. O sistema não possui usuário ou senha padrão.
+
+Se desejar proteger o instalador com uma chave adicional:
+
+```env
+INSTALL_KEY="uma-chave-longa-e-aleatoria"
 ```
 
-### 3️⃣ Configurar o banco de dados
+Depois que o administrador é criado, o estado de instalação é marcado no banco e `/setup` deixa de funcionar.
 
-Crie a tabela `usuarios` no MySQL:
+## Cadastro público
 
-```sql
-CREATE TABLE usuarios (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  nome VARCHAR(100) NOT NULL,
-  email VARCHAR(150) UNIQUE NOT NULL,
-  senha_hash VARCHAR(255) NOT NULL,
-  funcao ENUM('admin', 'usuario') DEFAULT 'usuario',
-  status ENUM('ativo', 'inativo') DEFAULT 'ativo',
-  criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
-  atualizado_em DATETIME NULL
-);
+A rota `/register` permite que qualquer visitante crie uma conta comum depois da instalação.
+
+O formulário **não envia perfil nem status**. O backend força:
+
+```text
+role = user
+status = active
 ```
 
-### 4️⃣ Rodar o servidor embutido do PHP
+Para desativar o cadastro público:
 
-```bash
-php -S localhost:8000 -t public
+```env
+PUBLIC_REGISTRATION=false
 ```
 
-Acesse em:  
-👉 http://localhost:8000
+Administradores continuam podendo cadastrar usuários pelo painel.
 
----
+## Perfis
 
-## 🧱 Principais Componentes
+- **admin:** acesso completo, usuários e auditoria.
+- **manager:** visualiza usuários e detalhes, sem alterar contas.
+- **user:** dashboard, perfil e senha própria.
 
-### 🔸 Core/Model.php
-- ORM leve inspirado no Eloquent
-- Métodos: `where()`, `first()`, `get()`, `create()`, `update()`, `delete()`, `updateOrCreate()`
+## Senhas
 
-### 🔸 Core/Router.php
-- Sistema de rotas com suporte a:
-  - `GET`, `POST`, `PUT`, `DELETE`
-  - Agrupamento com prefixo e middleware
-  - Parâmetros dinâmicos `{id}`
+Mínimo de 12 caracteres, incluindo:
 
-### 🔸 Core/Csrf.php
-- Geração e validação de **CSRF Tokens**
-- Proteção automática em formulários POST
+- maiúscula;
+- minúscula;
+- número;
+- símbolo.
 
-### 🔸 Controllers/
-- `AuthController` → login/logout
-- `UsuarioController` → CRUD de usuários
+As senhas são armazenadas com `PASSWORD_DEFAULT`.
 
-### 🔸 Models/
-- `UsuarioModel` → lógica de autenticação, hashing de senhas e persistência
+## Banco
 
----
+`database.sql` cria:
 
-## 🔐 Segurança Implementada
+- `installation_state`
+- `users`
+- `login_attempts`
+- `registration_attempts`
+- `audit_logs`
 
-- Hash de senha com `password_hash()` (Bcrypt)
-- Proteção CSRF em todos os formulários
-- Sessão segura (SameSite Strict, HttpOnly)
-- Filtros e validação de entrada (filter_var, trim, etc.)
-- Mensagens de erro via FlashMessage
+## Rotas principais
 
----
+```text
+GET/POST /setup
+GET/POST /login
+GET/POST /register
+POST     /logout
+GET      /
+GET/POST /profile
+POST     /profile/password
+GET      /users
+GET      /users/create
+POST     /users
+GET      /users/{id}
+GET      /users/{id}/edit
+POST     /users/{id}/update
+POST     /users/{id}/status
+POST     /users/{id}/delete
+GET      /audit
+```
 
-## 🧠 Conceitos Aplicados
+## Segurança
 
-- Padrão **MVC**
-- **Dependency Injection** (PDO, Controllers)
-- **Fluent Interface** em consultas (`Model`)
-- **Autoload PSR-4** manual (bootstrap)
-- **Front Controller Pattern** (`index.php`)
-- **Middleware Pattern** em rotas
+O projeto inclui CSRF, prepared statements, escaping de saída, rate limiting, sessão com cookies `HttpOnly`/`SameSite=Strict`, `Secure` em HTTPS, proteção contra session fixation, auditoria, soft delete e proteção do último administrador ativo.
 
----
+Em produção use HTTPS, `APP_DEBUG=false`, mantenha PHP/Apache/MySQL atualizados e aponte o servidor apenas para a pasta `public/`.
 
-## 🧩 Rotas Disponíveis
-
-| Método | Rota | Controller | Ação |
-|--------|------|-------------|------|
-| GET | / | UsuarioController | index |
-| GET | /login | AuthController | login |
-| POST | /login | AuthController | login |
-| GET | /logout | AuthController | logout |
-| GET | /usuarios | UsuarioController | index |
-| GET | /usuarios/show/{id} | UsuarioController | show |
-| GET | /usuarios/create | UsuarioController | create |
-| POST | /usuarios/store | UsuarioController | store |
-| GET | /usuarios/edit/{id} | UsuarioController | edit |
-| POST | /usuarios/update/{id} | UsuarioController | update |
-| POST | /usuarios/delete/{id} | UsuarioController | delete |
-
----
-
-## 📄 Licença
-
-Este projeto é distribuído sob a licença **MIT**.  
-Você pode usá-lo livremente para fins acadêmicos e comerciais.
-
----
-
-## 💬 Contato
-🔗 GitHub: [@marceloliima](https://github.com/marceloliima)
-
----
-
-> 💡 Projeto criado para fins educacionais e demonstração de arquitetura limpa em PHP, sem dependências externas, ideal para aprendizado de **MVC, segurança e boas práticas** em back-end.
+Nenhuma aplicação deve ser considerada absolutamente segura; segurança também depende da configuração e operação do servidor.

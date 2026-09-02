@@ -1,0 +1,3 @@
+<?php $pageTitle = 'Cadastrar usuário'; ?>
+<section class="page-head"><div><p class="eyebrow">Administração</p><h1>Novo usuário</h1><p class="muted">Cadastre uma nova conta e defina o nível de acesso.</p></div><a class="btn btn-quiet" href="<?= e(url('/users')) ?>">Voltar</a></section>
+<section class="panel form-panel"><form method="post" action="<?= e(url('/users')) ?>"><input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>"><?php require __DIR__ . '/form.php'; ?><div class="form-actions"><button class="btn btn-primary" type="submit">Criar usuário</button><a class="btn btn-quiet" href="<?= e(url('/users')) ?>">Cancelar</a></div></form></section>

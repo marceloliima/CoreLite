@@ -1,58 +1,55 @@
 <?php
+use App\Core\Auth;
+use App\Core\Csrf;
 
-use App\Controllers\AuthController;
-use App\Core\FlashMessage;
-
-$auth = new AuthController();
-$usuarioLogado = $auth->estaLogado();
+$pageTitle = $pageTitle ?? config('app.name', 'SecurePanel PHP');
 ?>
-<!DOCTYPE html>
-<html lang="pt-br">
-
+<!doctype html>
+<html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= htmlspecialchars($title ?? 'Sistema MVC', ENT_QUOTES, 'UTF-8'); ?></title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <meta name="color-scheme" content="light">
+    <title><?= e($pageTitle) ?> | <?= e(config('app.name')) ?></title>
+    <link rel="stylesheet" href="<?= e(url('/assets/css/app.css')) ?>">
+    <script src="<?= e(url('/assets/js/app.js')) ?>" defer></script>
 </head>
-
 <body>
-    <header>
-        <nav>
-            <a href="/">Início</a>
-            <?php if ($usuarioLogado): ?>
-                <li><a href="/usuarios/create">Novo Usuário</a></li>
+<?php if ($currentUser): ?>
+<header class="topbar">
+    <a class="brand" href="<?= e(url('/')) ?>" aria-label="Ir para dashboard">
+        <span class="brand-mark">SP</span>
+        <span><strong>SecurePanel</strong><small>PHP 8.2 puro</small></span>
+    </a>
 
-                <?php if ($auth->temFuncao('admin')): ?>
-                    <li><a href="/usuarios">Usuários</a></li>
-                <?php endif; ?>
+    <button class="menu-button" type="button" data-menu-button aria-expanded="false" aria-controls="main-nav">Menu</button>
 
-                <li><a href="/logout">Sair</a></li>
-                <span style="margin-left: 10px; color: #333;">
-                    <li>Olá, <?= htmlspecialchars($auth->getUsuario()->nome, ENT_QUOTES, 'UTF-8'); ?></li>
-                </span>
+    <nav id="main-nav" class="main-nav" data-menu>
+        <a href="<?= e(url('/')) ?>">Dashboard</a>
+        <?php if (Auth::hasRole('admin', 'manager')): ?><a href="<?= e(url('/users')) ?>">Usuários</a><?php endif; ?>
+        <?php if (Auth::hasRole('admin')): ?><a href="<?= e(url('/audit')) ?>">Auditoria</a><?php endif; ?>
+        <a href="<?= e(url('/profile')) ?>">Meu perfil</a>
+        <div class="user-chip"><span><?= e($currentUser['name']) ?></span><small><?= e($currentUser['role']) ?></small></div>
+        <form method="post" action="<?= e(url('/logout')) ?>">
+            <input type="hidden" name="csrf_token" value="<?= e(Csrf::token('logout')) ?>">
+            <button class="btn btn-quiet" type="submit">Sair</button>
+        </form>
+    </nav>
+</header>
+<?php endif; ?>
 
-            <?php else: ?>
-                <li><a href="/login">Login</a></li>
-                <li><a href="/registro">Registrar</a></li>
-            <?php endif; ?>
-        </nav>
-        <hr>
-    </header>
+<main class="<?= $currentUser ? 'shell' : 'auth-shell' ?>">
+    <?php foreach ($flashMessages as $flash): ?>
+        <div class="flash flash-<?= e($flash['type']) ?>" role="status" data-flash>
+            <span><?= e($flash['message']) ?></span>
+            <button type="button" aria-label="Fechar mensagem" data-flash-close>×</button>
+        </div>
+    <?php endforeach; ?>
 
-    <main>
-        <!-- Mensagens Flash -->
-        <?php FlashMessage::exibir(true); ?>
+    <?= $content ?>
+</main>
 
-        <!-- Conteúdo da view -->
-        <?= $content ?? '<p>Nenhum conteúdo carregado.</p>'; ?>
-    </main>
-
-    <footer>
-        <hr>
-        <p style="text-align:center; font-size:0.9em; color:#555;">
-            &copy; <?= date('Y'); ?> - Sistema MVC em PHP 8.2
-        </p>
-    </footer>
+<footer class="footer">SecurePanel PHP · <?= date('Y') ?> · PHP, CSS e JavaScript puros</footer>
 </body>
-
 </html>

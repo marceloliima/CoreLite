@@ -4,185 +4,245 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Models\UsuarioModel;
-use App\Core\FlashMessage;
+use App\Core\Audit;
+use App\Core\Auth;
 use App\Core\Controller;
 use App\Core\Csrf;
+use App\Core\Flash;
+use App\Core\Installation;
+use App\Core\RateLimiter;
+use App\Core\Response;
+use App\Core\Session;
+use App\Core\Validator;
+use App\Models\User;
+use PDOException;
 
-class AuthController extends Controller
+final class AuthController extends Controller
 {
-    private const SESSION_KEY = 'usuario_logado';
-    private const EXPIRATION  = 7200; // 2 horas
-
-    private ?UsuarioModel $usuario = null;
-
-    public function __construct()
+    public function showLogin(): string
     {
-        $this->iniciarSessao();
-        $this->carregarUsuarioSessao();
-    }
-
-    private function iniciarSessao(): void
-    {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
+        if (!Installation::isInstalled()) {
+            redirect('/setup');
         }
-    }
-
-    private function carregarUsuarioSessao(): void
-    {
-        if (!empty($_SESSION[self::SESSION_KEY]['id'])) {
-            $usuario = (new UsuarioModel())->find((int)$_SESSION[self::SESSION_KEY]['id']);
-            if ($usuario && $this->sessaoValida()) {
-                $this->usuario = $usuario;
-                $_SESSION[self::SESSION_KEY]['ultimo_acesso'] = time();
-            } else {
-                $this->logout();
-            }
-        }
-    }
-
-    private function sessaoValida(): bool
-    {
-        if (empty($_SESSION[self::SESSION_KEY]['ultimo_acesso'])) {
-            return false;
-        }
-        return (time() - $_SESSION[self::SESSION_KEY]['ultimo_acesso']) <= self::EXPIRATION;
-    }
-
-    public function login(): mixed
-    {
-        $this->iniciarSessao();
-
-        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $tokenPost = $_POST['csrf_token'] ?? '';
-            if (!Csrf::check('login', $tokenPost)) {
-                FlashMessage::definir('erro', 'Token CSRF inválido ou expirado.');
-                header('Location: /login');
-                exit;
-            }
-
-            $email = filter_var($_POST['email'] ?? '', FILTER_VALIDATE_EMAIL);
-            $senha = trim($_POST['senha'] ?? '');
-
-            if (!$email || !$senha) {
-                FlashMessage::definir('erro', 'E-mail e senha são obrigatórios.');
-                header('Location: /login');
-                exit;
-            }
-
-            $usuarioModel = new UsuarioModel();
-            $usuario = $usuarioModel->autenticar($email, $senha);
-
-            if ($usuario) {
-                $_SESSION[self::SESSION_KEY] = [
-                    'id'            => $usuario->id,
-                    'nome'          => $usuario->nome,
-                    'email'         => $usuario->email,
-                    'funcao'        => $usuario->funcao,
-                    'ultimo_acesso' => time()
-                ];
-
-                $this->usuario = $usuario;
-
-                FlashMessage::definir('sucesso', 'Login efetuado com sucesso!');
-                header('Location: /');
-                exit;
-            }
-
-            FlashMessage::definir('erro', 'E-mail ou senha inválidos.');
-            header('Location: /login');
-            exit;
-        }
-
-        // GET: gera token CSRF atualizado
-        $csrfToken = Csrf::token('login');
 
         return $this->view('auth/login', [
-            'csrf_token' => $csrfToken
+            'csrfToken' => Csrf::token('login'),
+            'registrationEnabled' => (bool) config('app.public_registration', true),
         ]);
     }
 
-    public function logout(): void
+    public function login(): never
     {
-        unset($_SESSION[self::SESSION_KEY]);
-        $this->usuario = null;
-        FlashMessage::definir('sucesso', 'Você saiu do sistema.');
-        header('Location: /login');
-        exit;
+        if (!Installation::isInstalled()) {
+            redirect('/setup');
+        }
+
+        $this->verifyCsrf('login');
+
+        $email = strtolower(trim((string) ($_POST['email'] ?? '')));
+        $password = (string) ($_POST['password'] ?? '');
+
+        $validator = (new Validator())
+            ->required('email', $email, 'E-mail')
+            ->email('email', $email)
+            ->required('password', $password, 'Senha');
+
+        if ($validator->fails()) {
+            Session::flashOldInput(['email' => $email]);
+            Flash::add('error', implode(' ', $validator->errors()));
+            redirect('/login');
+        }
+
+        if (RateLimiter::tooManyLoginAttempts($email)) {
+            Flash::add('error', 'Muitas tentativas recentes. Aguarde alguns minutos e tente novamente.');
+            redirect('/login');
+        }
+
+        $success = Auth::attempt($email, $password);
+        RateLimiter::recordLoginAttempt($email, $success);
+
+        if (!$success) {
+            Audit::log('login_failed', 'user', null, [
+                'email_hash' => hash('sha256', $email),
+            ]);
+            Session::flashOldInput(['email' => $email]);
+            Flash::add('error', 'E-mail ou senha inválidos.');
+            redirect('/login');
+        }
+
+        Session::clearOldInput();
+        Audit::log('login_success', 'user', Auth::id());
+        Flash::add('success', 'Bem-vindo ao SecurePanel.');
+        redirect('/');
     }
 
-    public function getUsuario(): ?UsuarioModel
+    public function showRegister(): string
     {
-        return $this->usuario;
+        $this->ensureRegistrationAvailable();
+
+        return $this->view('auth/register', [
+            'csrfToken' => Csrf::token('register'),
+        ]);
     }
 
-    public function estaLogado(): bool
+    public function register(): never
     {
-        return $this->usuario instanceof UsuarioModel && $this->usuario->id > 0;
+        $this->ensureRegistrationAvailable();
+        $this->verifyCsrf('register');
+
+        if (RateLimiter::tooManyRegistrations()) {
+            Flash::add('error', 'Muitas tentativas de cadastro a partir deste endereço. Tente novamente mais tarde.');
+            redirect('/register');
+        }
+
+        $name = trim((string) ($_POST['name'] ?? ''));
+        $email = strtolower(trim((string) ($_POST['email'] ?? '')));
+        $password = (string) ($_POST['password'] ?? '');
+        $confirmation = (string) ($_POST['password_confirmation'] ?? '');
+
+        $validator = (new Validator())
+            ->required('name', $name, 'Nome')
+            ->length('name', $name, 2, 120, 'Nome')
+            ->required('email', $email, 'E-mail')
+            ->email('email', $email)
+            ->length('email', $email, 5, 190, 'E-mail')
+            ->required('password', $password, 'Senha')
+            ->password('password', $password)
+            ->same('password_confirmation', $confirmation, $password, 'Confirmação da senha');
+
+        if ($validator->fails()) {
+            RateLimiter::recordRegistrationAttempt($email, false);
+            Session::flashOldInput(['name' => $name, 'email' => $email]);
+            Flash::add('error', implode(' ', $validator->errors()));
+            redirect('/register');
+        }
+
+        $model = new User();
+        if ($model->emailExists($email)) {
+            RateLimiter::recordRegistrationAttempt($email, false);
+            Session::flashOldInput(['name' => $name]);
+            // Mensagem genérica reduz enumeração de contas existentes.
+            Flash::add('error', 'Não foi possível concluir o cadastro com os dados informados.');
+            redirect('/register');
+        }
+
+        try {
+            // role/status são definidos pelo servidor; nunca vêm do formulário público.
+            $userId = $model->create([
+                'name' => $name,
+                'email' => $email,
+                'password_hash' => password_hash($password, PASSWORD_DEFAULT),
+                'role' => 'user',
+                'status' => 'active',
+            ]);
+        } catch (PDOException) {
+            RateLimiter::recordRegistrationAttempt($email, false);
+            Flash::add('error', 'Não foi possível concluir o cadastro. Verifique os dados e tente novamente.');
+            redirect('/register');
+        }
+
+        RateLimiter::recordRegistrationAttempt($email, true);
+        Session::clearOldInput();
+        Audit::log('public_registration', 'user', $userId);
+        Flash::add('success', 'Conta criada com sucesso. Agora você pode entrar.');
+        redirect('/login');
     }
 
-    public function temFuncao(string $funcao): bool
+    public function showSetup(): string
     {
-        if (!$this->estaLogado()) return false;
-        return strtolower($this->usuario->funcao) === strtolower($funcao);
+        if (Installation::isInstalled()) {
+            redirect('/login');
+        }
+
+        return $this->view('auth/setup', [
+            'csrfToken' => Csrf::token('setup'),
+            'requiresInstallKey' => trim((string) config('app.install_key', '')) !== '',
+        ]);
     }
 
-    public function temAlgumaFuncao(array $funcoes): bool
+    public function setup(): never
     {
-        if (!$this->estaLogado()) return false;
-        return in_array(strtolower($this->usuario->funcao), array_map('strtolower', $funcoes), true);
+        if (Installation::isInstalled()) {
+            Response::abort(403, 'A instalação inicial já foi concluída.');
+        }
+
+        $this->verifyCsrf('setup');
+        $this->validateInstallationKey();
+
+        $name = trim((string) ($_POST['name'] ?? ''));
+        $email = strtolower(trim((string) ($_POST['email'] ?? '')));
+        $password = (string) ($_POST['password'] ?? '');
+        $confirmation = (string) ($_POST['password_confirmation'] ?? '');
+
+        $validator = (new Validator())
+            ->required('name', $name, 'Nome')
+            ->length('name', $name, 2, 120, 'Nome')
+            ->required('email', $email, 'E-mail')
+            ->email('email', $email)
+            ->length('email', $email, 5, 190, 'E-mail')
+            ->required('password', $password, 'Senha')
+            ->password('password', $password)
+            ->same('password_confirmation', $confirmation, $password, 'Confirmação da senha');
+
+        if ($validator->fails()) {
+            Session::flashOldInput(['name' => $name, 'email' => $email]);
+            Flash::add('error', implode(' ', $validator->errors()));
+            redirect('/setup');
+        }
+
+        try {
+            $userId = Installation::createFirstAdmin($name, $email, $password);
+        } catch (\Throwable $e) {
+            $message = config('app.debug', false)
+                ? $e->getMessage()
+                : 'Não foi possível concluir a instalação inicial.';
+            Flash::add('error', $message);
+            redirect('/setup');
+        }
+
+        Session::clearOldInput();
+        Audit::log('initial_admin_created', 'user', $userId);
+        Flash::add('success', 'Administrador inicial criado. Faça login para continuar.');
+        redirect('/login');
     }
 
-    public function exigirLogin(?string $mensagem = null): void
+    public function logout(): never
     {
-        if (!$this->estaLogado()) {
-            $msg = $mensagem ?? 'Você precisa estar logado para acessar esta página.';
-            FlashMessage::definir('erro', $msg);
-            header('Location: /login');
-            exit;
+        $this->verifyCsrf('logout');
+        $userId = Auth::id();
+
+        if ($userId !== null) {
+            Audit::log('logout', 'user', $userId);
+        }
+
+        Auth::logout();
+        Session::start();
+        Flash::add('success', 'Sessão encerrada com segurança.');
+        redirect('/login');
+    }
+
+    private function ensureRegistrationAvailable(): void
+    {
+        if (!Installation::isInstalled()) {
+            redirect('/setup');
+        }
+
+        if (!(bool) config('app.public_registration', true)) {
+            Response::abort(404, 'Cadastro público indisponível.');
         }
     }
 
-    public function exigirFuncao(string $funcao, ?string $mensagem = null): void
+    private function validateInstallationKey(): void
     {
-        if (!$this->temFuncao($funcao)) {
-            $msg = $mensagem ?? "Acesso negado. Função '{$funcao}' requerida.";
-            FlashMessage::definir('erro', $msg);
-            header('Location: /');
-            exit;
+        $expected = trim((string) config('app.install_key', ''));
+        if ($expected === '') {
+            return;
         }
-    }
 
-    public function exigirAlgumaFuncao(array $funcoes, ?string $mensagem = null): void
-    {
-        if (!$this->temAlgumaFuncao($funcoes)) {
-            $msg = $mensagem ?? "Acesso negado. Funções permitidas: " . implode(', ', $funcoes);
-            FlashMessage::definir('erro', $msg);
-            header('Location: /');
-            exit;
-        }
-    }
-
-    public function getId(): ?int
-    {
-        return $this->usuario->id ?? null;
-    }
-
-    public function getEmail(): ?string
-    {
-        return $this->usuario->email ?? null;
-    }
-
-    public function getFuncao(): ?string
-    {
-        return $this->usuario->funcao ?? null;
-    }
-
-    public function atualizarUltimoAcesso(): void
-    {
-        if ($this->estaLogado()) {
-            $_SESSION[self::SESSION_KEY]['ultimo_acesso'] = time();
+        $provided = (string) ($_POST['installation_key'] ?? '');
+        if ($provided === '' || !hash_equals($expected, $provided)) {
+            Flash::add('error', 'Chave de instalação inválida.');
+            redirect('/setup');
         }
     }
 }

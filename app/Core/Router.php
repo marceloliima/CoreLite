@@ -1,135 +1,76 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Core;
 
-use App\Core\FlashMessage;
-
-class Router
+final class Router
 {
     private array $routes = [];
-    private const PARAM_REGEX = '[a-zA-Z0-9_\-\%\.]+';
-    private array $currentGroup = [];
 
-    /**
-     * Registra uma rota GET
-     */
-    public function get(string $uri, callable|array $handler): self
+    public function get(string $path, array|callable $handler, array $middleware = []): void
     {
-        return $this->add('GET', $uri, $handler);
+        $this->add('GET', $path, $handler, $middleware);
     }
 
-    /**
-     * Registra uma rota POST
-     */
-    public function post(string $uri, callable|array $handler): self
+    public function post(string $path, array|callable $handler, array $middleware = []): void
     {
-        return $this->add('POST', $uri, $handler);
+        $this->add('POST', $path, $handler, $middleware);
     }
 
-    /**
-     * Registra uma rota PUT
-     */
-    public function put(string $uri, callable|array $handler): self
+    private function add(string $method, string $path, array|callable $handler, array $middleware): void
     {
-        return $this->add('PUT', $uri, $handler);
+        $path = '/' . trim($path, '/');
+        $this->routes[$method][] = compact('path', 'handler', 'middleware');
     }
 
-    /**
-     * Registra uma rota DELETE
-     */
-    public function delete(string $uri, callable|array $handler): self
+    public function dispatch(Request $request): void
     {
-        return $this->add('DELETE', $uri, $handler);
-    }
+        $method = $request->method();
+        $path = $request->path();
 
-    /**
-     * Registra uma rota com método específico
-     */
-    private function add(string $method, string $uri, callable|array $handler): self
-    {
-        $method = strtoupper($method);
-        $this->validateHandler($handler);
+        foreach ($this->routes[$method] ?? [] as $route) {
+            $params = $this->match($route['path'], $path);
+            if ($params === null) continue;
 
-        $prefix = $this->currentGroup['prefix'] ?? '';
-        $uri = '/' . trim($prefix . '/' . trim($uri, '/'), '/');
-
-        $this->routes[$method][$uri] = [
-            'handler' => $handler,
-            'middleware' => $this->currentGroup['middleware'] ?? []
-        ];
-
-        return $this;
-    }
-
-    /**
-     * Agrupa rotas com prefixo ou middleware
-     */
-    public function group(array $attributes, callable $callback): void
-    {
-        $parentGroup = $this->currentGroup;
-        $this->currentGroup = array_merge($parentGroup, $attributes);
-        $callback($this);
-        $this->currentGroup = $parentGroup;
-    }
-
-    /**
-     * Valida handler da rota
-     */
-    private function validateHandler(callable|array $handler): void
-    {
-        if (is_array($handler)) {
-            if (count($handler) !== 2) {
-                throw new \InvalidArgumentException('Handler deve ser [Controller, method]');
+            $this->runMiddleware($route['middleware']);
+            $handler = $route['handler'];
+            if (is_array($handler)) {
+                [$class, $action] = $handler;
+                $controller = new $class();
+                echo $controller->{$action}(...array_values($params));
+            } else {
+                echo $handler(...array_values($params));
             }
-            [$class, $method] = $handler;
-            if (!class_exists($class) || !method_exists($class, $method)) {
-                throw new \InvalidArgumentException("Controller ou método não encontrado: {$class}::{$method}");
-            }
-        } elseif (!is_callable($handler)) {
-            throw new \InvalidArgumentException('Handler inválido');
-        }
-    }
-
-    /**
-     * Executa a rota correspondente
-     */
-    public function dispatch(string $uri, string $method): void
-    {
-        $method = strtoupper($method);
-        $uri = '/' . trim(parse_url($uri, PHP_URL_PATH), '/');
-
-        foreach ($this->routes[$method] ?? [] as $route => $info) {
-            $pattern = preg_replace('#\{([\w]+)\}#', '(?P<$1>' . self::PARAM_REGEX . ')', $route);
-            $pattern = "#^{$pattern}$#";
-
-            if (preg_match($pattern, $uri, $matches)) {
-                // Extrai apenas parâmetros nomeados
-                $params = array_filter($matches, 'is_string', ARRAY_FILTER_USE_KEY);
-
-                $handler = $info['handler'];
-
-                // Middleware
-                foreach ($info['middleware'] as $mw) {
-                    $mw($params); // cada middleware recebe params (ex: auth, csrf)
-                }
-
-                // Executa controller ou callback
-                if (is_array($handler)) {
-                    [$class, $methodName] = $handler;
-                    $controller = new $class();
-                    echo $controller->{$methodName}(...array_values($params));
-                    return;
-                }
-
-                echo call_user_func_array($handler, array_values($params));
-                return;
-            }
+            return;
         }
 
-        // Rota não encontrada
-        http_response_code(404);
-        FlashMessage::definir('erro', '404 - Rota não encontrada');
-        header('Location: /');
-        exit;
+        Response::abort(404, 'A página solicitada não existe.');
+    }
+
+    private function match(string $route, string $path): ?array
+    {
+        $pattern = preg_replace_callback('/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/', static fn(array $m): string => '(?P<' . $m[1] . '>\d+)', $route);
+        if (preg_match('#^' . $pattern . '$#', $path, $matches) !== 1) return null;
+        return array_filter($matches, static fn($k): bool => is_string($k), ARRAY_FILTER_USE_KEY);
+    }
+
+    private function runMiddleware(array $middleware): void
+    {
+        foreach ($middleware as $item) {
+            if ($item === 'auth' && !Auth::check()) {
+                Flash::add('warning', 'Entre para continuar.');
+                redirect('/login');
+            }
+            if ($item === 'guest' && Auth::check()) {
+                redirect('/');
+            }
+            if ($item === 'admin' && !Auth::hasRole('admin')) {
+                Response::abort(403, 'Acesso restrito a administradores.');
+            }
+            if ($item === 'manager' && !Auth::hasRole('admin', 'manager')) {
+                Response::abort(403, 'Você não possui permissão para esta área.');
+            }
+        }
     }
 }
